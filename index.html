@@ -15,6 +15,7 @@ h1{margin:0;font-size:clamp(28px,7vw,56px);font-weight:800;letter-spacing:-1px;b
 #lines{position:absolute;left:0;right:0;transition:transform .45s ease;padding:0 16px}
 .l{text-align:center;font-size:clamp(18px,4.5vw,30px);line-height:1.5;color:var(--dim);transition:all .3s;cursor:pointer;margin:2px 0}
 .l.gap{height:22px}
+.dl{display:flex;align-items:center;gap:6px}.dl button{padding:6px 14px}#dv{font-variant-numeric:tabular-nums;min-width:96px;text-align:center;cursor:pointer}
 .l.next{outline:2px dashed var(--glow);outline-offset:4px;border-radius:8px}
 .l.past{color:#a594bb}
 .l.on{color:var(--fg);font-weight:800;transform:scale(1.08);text-shadow:0 0 18px var(--hot)}
@@ -35,6 +36,9 @@ body.syncing #sync{display:block}
   <button id="play">▶ Play</button>
   <input id="seek" type="range" min="0" max="350" step="0.1" value="0">
   <span id="t">0:00 / 0:00</span>
+  <span class="dl"><button class="ghost" id="dm">−</button>
+  <span id="dv" title="Lyrics delay">Delay 0.0s</span>
+  <button class="ghost" id="dp">+</button></span>
   <button class="ghost" id="syncBtn">🎤 Sync lyrics</button>
   <button class="ghost" id="undo" hidden>↶ Undo</button>
   <button class="ghost" id="exp" hidden>⬇ Download timings.json</button>
@@ -60,16 +64,16 @@ async function init(){
   let k=0;
   L.forEach((x,i)=>{const d=document.createElement('div');
     if(!x){d.className='l gap';}else{d.className='l';d.innerHTML='<span></span>';d.firstChild.textContent=x;d.dataset.k=k;
-      const kk=k;d.onclick=()=>{if(!syncing){a.currentTime=T[kk];a.play()}};els.push(d);k++;}
+      const kk=k;d.onclick=()=>{if(!syncing){a.currentTime=Math.max(0,T[kk]+D);a.play()}};els.push(d);k++;}
     box.appendChild(d);});
   center(0);
 }
 function center(i){const d=els[i];if(!d)return;box.style.transform=`translateY(${stage.clientHeight/2-d.offsetTop-d.offsetHeight/2}px)`}
 function tick(){
-  const t=a.currentTime;let i=-1;for(let k=0;k<T.length;k++)if(t>=T[k])i=k;
+  const t=a.currentTime-D;let i=-1;for(let k=0;k<T.length;k++)if(t>=T[k])i=k;
   if(i!==cur){els.forEach((d,k)=>{d.classList.toggle('on',k===i);d.classList.toggle('past',k<i)});cur=i;center(Math.max(i,0));}
   if(i>=0){const end=T[i+1]??a.duration;const p=Math.min(100,(t-T[i])/Math.max(.5,end-T[i])*100);els[i].style.setProperty('--p',p+'%');}
-  seek.value=t;document.getElementById('t').textContent=fmt(t)+' / '+fmt(a.duration||0);
+  seek.value=a.currentTime;document.getElementById('t').textContent=fmt(a.currentTime)+' / '+fmt(a.duration||0);
   requestAnimationFrame(tick);
 }
 const seek=document.getElementById('seek'),play=document.getElementById('play');
@@ -78,11 +82,15 @@ seek.oninput=()=>a.currentTime=+seek.value;
 play.onclick=()=>a.paused?a.play():a.pause();
 a.onplay=()=>play.textContent='❚❚ Pause';a.onpause=()=>play.textContent='▶ Play';
 const $=id=>document.getElementById(id);
+let D=0;try{D=+localStorage.getItem('zdc_d')||0}catch(e){}
+function setD(v){D=Math.round(v*10)/10;$('dv').textContent='Delay '+(D>0?'+':'')+D.toFixed(1)+'s';cur=-2;try{localStorage.setItem('zdc_d',D)}catch(e){}}
+setTimeout(()=>setD(D));
+$('dm').onclick=()=>setD(D-0.1);$('dp').onclick=()=>setD(D+0.1);$('dv').onclick=()=>setD(0);
 function save(){try{localStorage.setItem('zdc_t',JSON.stringify(T))}catch(e){}}
 function showNext(){els.forEach((d,k)=>d.classList.toggle('next',syncing&&k===si));
   $('prog').textContent=si<T.length?`linha ${si+1}/${T.length}: "${L.filter(x=>x)[si]}"`:'✔ todas as linhas marcadas! Faz download.';
   if(syncing&&els[si]&&a.paused)center(si);}
-function mark(){if(si>=T.length)return;T[si]=+a.currentTime.toFixed(2);
+function mark(){if(si>=T.length)return;T[si]=+(a.currentTime-D).toFixed(2);
   for(let k=si+1;k<T.length;k++)if(T[k]<=T[si])T[k]=+(T[si]+0.5*(k-si)).toFixed(2);
   si++;cur=-2;save();showNext();}
 function undo(){if(si>0){si--;a.currentTime=Math.max(0,T[si]-2);cur=-2;showNext();}}
@@ -94,11 +102,13 @@ $('syncBtn').onclick=()=>setSync(!syncing);
 $('tap').onclick=mark;$('undo').onclick=undo;
 $('rst').onclick=()=>{try{localStorage.removeItem('zdc_t')}catch(e){};location.reload()};
 document.addEventListener('keydown',e=>{
-  if(e.code==='Space'){e.preventDefault();syncing?mark():play.click();}
+  if(e.key==='['||e.key===','){setD(D-(e.shiftKey?1:0.1));}
+  else if(e.key===']'||e.key==='.'){setD(D+(e.shiftKey?1:0.1));}
+  else if(e.code==='Space'){e.preventDefault();syncing?mark():play.click();}
   else if(syncing&&(e.code==='ArrowLeft'||e.code==='Backspace')){e.preventDefault();undo();}});
-$('exp').onclick=()=>{const b=new Blob([JSON.stringify(T)],{type:'application/json'});
+$('exp').onclick=()=>{const b=new Blob([JSON.stringify(T.map(x=>+(x+D).toFixed(2)))],{type:'application/json'});
   const u=document.createElement('a');u.href=URL.createObjectURL(b);u.download='timings.json';u.click();};
-$('cpy').onclick=e=>navigator.clipboard.writeText(JSON.stringify(T)).then(()=>e.target.textContent='Copied ✓',()=>e.target.textContent='Copy failed');
+$('cpy').onclick=e=>navigator.clipboard.writeText(JSON.stringify(T.map(x=>+(x+D).toFixed(2)))).then(()=>e.target.textContent='Copied ✓',()=>e.target.textContent='Copy failed');
 init();requestAnimationFrame(tick);
 </script>
 </body>
