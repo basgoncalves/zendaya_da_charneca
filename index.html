@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zendaya da Charneca — Karaoke</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d0716;--fg:#f5eefc;--dim:#6b5a80;--hot:#ff3fa4;--glow:#ffd23f}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at 50% -10%,#3b1257,var(--bg) 60%);color:var(--fg);font-family:'Bricolage Grotesque',system-ui,sans-serif;min-height:100vh}
+header{text-align:center;padding:20px 16px 8px}
+h1{margin:0;font-size:clamp(28px,7vw,56px);font-weight:800;letter-spacing:-1px;background:linear-gradient(90deg,var(--hot),var(--glow));-webkit-background-clip:text;background-clip:text;color:transparent}
+#stage{height:60vh;overflow:hidden;position:relative;mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent)}
+#lines{position:absolute;left:0;right:0;transition:transform .45s ease;padding:0 16px}
+.l{text-align:center;font-size:clamp(18px,4.5vw,30px);line-height:1.5;color:var(--dim);transition:all .3s;cursor:pointer;margin:2px 0}
+.l.gap{height:22px}
+.l.past{color:#a594bb}
+.l.on{color:var(--fg);font-weight:800;transform:scale(1.08);text-shadow:0 0 18px var(--hot)}
+.l.on span{background:linear-gradient(90deg,var(--glow) var(--p,0%),var(--fg) var(--p,0%));-webkit-background-clip:text;background-clip:text;color:transparent}
+.bar{position:sticky;bottom:0;padding:14px 16px 18px;background:rgba(13,7,22,.92);display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center}
+button{background:var(--hot);color:#fff;border:0;border-radius:999px;padding:10px 18px;font:inherit;font-weight:800;cursor:pointer}
+button.ghost{background:transparent;border:1px solid var(--dim);color:var(--fg)}
+input[type=range]{flex:1 1 220px;accent-color:var(--hot)}
+#t{font-variant-numeric:tabular-nums;color:#a594bb;min-width:90px;text-align:center}
+#sync{display:none;width:100%;text-align:center;color:var(--glow);font-size:14px}
+body.syncing #sync{display:block}
+</style>
+</head>
+<body>
+<header><h1>Zendaya da Charneca</h1></header>
+<div id="stage"><div id="lines"></div></div>
+<div class="bar">
+  <button id="play">▶ Play</button>
+  <input id="seek" type="range" min="0" max="350" step="0.1" value="0">
+  <span id="t">0:00 / 0:00</span>
+  <button class="ghost" id="syncBtn">Sync</button>
+  <button class="ghost" id="exp" hidden>Export timings</button>
+  <div id="sync">Modo sync: carrega <b>espaço</b> (ou toca na letra) quando cada linha começa. No fim, "Export timings" → guarda como timings.json no repo.</div>
+</div>
+<audio id="a" src="song.mp3" preload="auto"></audio>
+<script>
+const a=document.getElementById('a'),box=document.getElementById('lines'),stage=document.getElementById('stage');
+let L=[],T=[],els=[],cur=-1,syncing=false,si=0;
+const fmt=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+async function init(){
+  const raw=await (await fetch('lyrics.txt')).text();
+  raw.trim().split('\n').forEach(x=>{x=x.trim();if(x)L.push(x);else if(L.length&&L[L.length-1]!=='')L.push('');});
+  const sung=L.map((x,i)=>x?i:-1).filter(i=>i>=0);
+  let saved=null;
+  try{saved=JSON.parse(localStorage.getItem('zdc_t'))}catch(e){}
+  if(!saved){try{const r=await fetch('timings.json');if(r.ok)saved=await r.json()}catch(e){}}
+  if(saved&&saved.length===sung.length)T=saved;
+  else{const s=8,e=340;T=sung.map((_,k)=>+(s+k*(e-s)/sung.length).toFixed(2));}
+  let k=0;
+  L.forEach((x,i)=>{const d=document.createElement('div');
+    if(!x){d.className='l gap';}else{d.className='l';d.innerHTML='<span></span>';d.firstChild.textContent=x;d.dataset.k=k;
+      const kk=k;d.onclick=()=>{if(syncing)mark();else{a.currentTime=T[kk];a.play()}};els.push(d);k++;}
+    box.appendChild(d);});
+  center(0);
+}
+function center(i){const d=els[i];if(!d)return;box.style.transform=`translateY(${stage.clientHeight/2-d.offsetTop-d.offsetHeight/2}px)`}
+function tick(){
+  const t=a.currentTime;let i=-1;for(let k=0;k<T.length;k++)if(t>=T[k])i=k;
+  if(i!==cur){els.forEach((d,k)=>{d.classList.toggle('on',k===i);d.classList.toggle('past',k<i)});cur=i;center(Math.max(i,0));}
+  if(i>=0){const end=T[i+1]??a.duration;const p=Math.min(100,(t-T[i])/Math.max(.5,end-T[i])*100);els[i].style.setProperty('--p',p+'%');}
+  seek.value=t;document.getElementById('t').textContent=fmt(t)+' / '+fmt(a.duration||0);
+  requestAnimationFrame(tick);
+}
+const seek=document.getElementById('seek'),play=document.getElementById('play');
+a.onloadedmetadata=()=>seek.max=a.duration;
+seek.oninput=()=>a.currentTime=+seek.value;
+play.onclick=()=>a.paused?a.play():a.pause();
+a.onplay=()=>play.textContent='❚❚ Pause';a.onpause=()=>play.textContent='▶ Play';
+function mark(){if(si<T.length){T[si]=+a.currentTime.toFixed(2);si++;try{localStorage.setItem('zdc_t',JSON.stringify(T))}catch(e){}}}
+document.getElementById('syncBtn').onclick=()=>{syncing=!syncing;document.body.classList.toggle('syncing',syncing);
+  document.getElementById('exp').hidden=!syncing;if(syncing){si=0;a.currentTime=0;a.play();}};
+document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();syncing?mark():play.click();}});
+document.getElementById('exp').onclick=()=>{const b=new Blob([JSON.stringify(T)],{type:'application/json'});
+  const u=document.createElement('a');u.href=URL.createObjectURL(b);u.download='timings.json';u.click();};
+init();requestAnimationFrame(tick);
+</script>
+</body>
+</html>
